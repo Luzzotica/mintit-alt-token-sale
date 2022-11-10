@@ -63,77 +63,6 @@
   )
 
   ;; -------------------------------
-  ;; String Values
-
-  (defschema value
-    @doc "Stores string values"
-    value:string
-  )
-  (deftable values:{value})
-
-  (defun update-string-value (val-id:string account:string)
-    @doc "Updates the account for the bank"
-
-    (with-capability (OPS)
-      (write values val-id
-        { "value": account }
-      )
-    )
-  )
-
-  (defun get-string-value:string (val-id:string)
-    @doc "Gets the value with the provided id"
-
-    (at "value" (read values val-id ["value"]))
-  )
-
-  ;; -------------------------------
-  ;; Counter
-
-  (defcap INCREMENT ()
-    @doc "Private capability for incrementing the counter"
-    true
-  )
-
-  (defschema counter
-    @doc "Stores counters"
-    counter:integer
-  )
-  (deftable counters:{counter})
-
-  (defun increment-counter:integer (counter-id:string)
-    @doc "Increments the given counter and returns the new count"
-
-    (require-capability (INCREMENT))
-
-    (with-read counters counter-id
-      { "counter" := count }
-      (let
-        (
-          (increment (+ count 1))
-        )
-        (update counters counter-id
-          { "counter": increment }  
-        )
-
-        increment
-      )
-    )
-  )
-
-  (defun get-counter:integer (counter-id:string)
-    (at "counter" (read counters counter-id ["counter"]))
-  )
-
-  (defun init-counter:string (counter-id:string)
-    @doc "Initializes the guards and creates the tables for the module"
-
-    (insert counters counter-id
-      { "counter": 0 }  
-    )
-  )
-
-  ;; -------------------------------
   ;; Managed Accounts
 
   (defcap MANAGED (account:string)
@@ -423,8 +352,6 @@
 (if (read-msg "init")
   [
     (create-table m-guards)
-    (create-table counters)
-    (create-table values)
     (create-table mintit-alt-coins)
     (create-table managed-accounts)
     (create-table whitelisters)
