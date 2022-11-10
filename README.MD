@@ -64,7 +64,7 @@ You can get the revealed NFTs by calling
 
 `claim-nfts` can only be called once the NFT has been revealed by MintIt.
 
-For users to mint and claim you must pass in the following capability
+For users to mint and claim you must pass in the following capability:
 ```lisp
 (defcap MANAGED (buyer:string))
 ```
