@@ -94,6 +94,7 @@
 })
 ; Create the mintit alt coin
 (create-mintit-alt-coin
+  "SwagAltSale"
   "Swag"
   "bank"
   coin
@@ -119,12 +120,12 @@
 })
 (expect-failure "Can't purchase without whitelist"
   "Must be whitelisted"
-  (mint-with-alt-coin "dave" "Swag" (read-keyset "dave-keyset"))
+  (mint-with-alt-coin "dave" "SwagAltSale" (read-keyset "dave-keyset"))
 )
 
 ; Add whitelisted
 (env-keys ["carol-key"])
-(add-whitelisted "Swag" ["dave"])
+(add-whitelisted "SwagAltSale" ["dave"])
 
 (env-keys ["dave-key"])
 (env-data {
@@ -140,7 +141,7 @@
 ])
 (expect-that "Can purchase"
   (= true)
-  (mint-with-alt-coin "dave" "Swag" (read-keyset "dave-keyset"))
+  (mint-with-alt-coin "dave" "SwagAltSale" (read-keyset "dave-keyset"))
 )
 (expect-that "Balances correct"
   (= [1009.0 1001.0 0.0 980.0])
@@ -168,13 +169,13 @@
     "key": "dave-key",
     "caps": [
       (coin.TRANSFER "dave" "bank" 20.0)
-      (MANAGED (get-managed-account-for-buyer "dave"))
+      (MANAGED "dave")
     ]
   }
 ])
 (expect-that "Can purchase"
   (= true)
-  (mint-with-alt-coin "dave" "Swag" (read-keyset "dave-keyset"))
+  (mint-with-alt-coin "dave" "SwagAltSale" (read-keyset "dave-keyset"))
 )
 (expect-that "Balances correct"
   (= [1018.0 1002.0 0.0 960.0])
@@ -190,18 +191,6 @@
   (length (get-owned-nfts "dave"))
 )
 
-(env-keys ["dave-key"])
-(env-data {
-  "dave-keyset": { "keys": ["dave-key"], "pred": "keys-all"}
-})
-(env-sigs [
-  {
-    "key": "dave-key",
-    "caps": [
-      (MANAGED (get-managed-account-for-buyer "dave"))
-    ]
-  }
-])
 (expect-that "No revealed nfts yet"
   (= 0)
   (length (get-revealed-nfts "dave"))
@@ -306,7 +295,7 @@
   {
     "key": "carol-key",
     "caps": [
-      (MANAGED (get-managed-account-for-buyer "dave"))
+      (MANAGED "dave")
     ]
   }
 ])
@@ -323,13 +312,70 @@
   {
     "key": "dave-key",
     "caps": [
-      (MANAGED (get-managed-account-for-buyer "dave"))
+      (MANAGED "dave")
     ]
   }
 ])
 (expect-that "Can claim"
   (= [true true])
   (claim-nfts "dave" (read-keyset "dave-keyset"))
+)
+
+(commit-tx)
+
+
+
+(begin-tx "Test withdraw")
+(use free.mintit-alt-token-sale)
+
+(env-keys ["dave-key"])
+(env-sigs [
+  {
+    "key": "dave-key",
+    "caps": [
+      (MINTIT_ALT_COIN_MANAGER "SwagAltSale")
+    ]
+  }
+])
+(expect-failure "Can't withdraw without guard"
+  "Keyset failure"
+  (withdraw-from-bank "SwagAltSale" "dave" 100.0)
+)
+
+(env-keys ["carol-key"])
+(env-sigs [
+  {
+    "key": "carol-key",
+    "caps": [
+      (MINTIT_ALT_COIN_MANAGER "SwagAltSale")
+    ]
+  }
+])
+;; Bank has more money because the test uses coin for alt
+;; They were paying double what it cost to actually mint.
+;; Don't do this at home kids.
+(expect-that "Balances are correct"
+  (= [1020.0 0.0]) 
+  [
+    (coin.get-balance "bank")
+    (coin.get-balance "carol")
+  ]
+)
+(expect-that "Can withdraw"
+  (= "Withdrew 100.0 coins from bank to carol")
+  (withdraw-from-bank "SwagAltSale" "carol" 100.0)
+)
+(expect-that "Balances are correct"
+  (= [920.0 100.0])
+  [
+    (coin.get-balance "bank")
+    (coin.get-balance "carol")
+  ]
+)
+
+(expect-that "Bank is correct"
+  (= "bank")
+  (get-bank-for-alt-sale "SwagAltSale")
 )
 
 (commit-tx)

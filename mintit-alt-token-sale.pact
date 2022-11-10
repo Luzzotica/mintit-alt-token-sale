@@ -126,10 +126,12 @@
   ;; -------------------------------
   ;; MintIt Interaction
 
-  (defcap MINTIT_ALT_COIN_MANAGER (collection-name)
-    (with-read mintit-alt-coins collection-name
-      { "guard":= guard }
+  (defcap MINTIT_ALT_COIN_MANAGER (sale-id:string)
+    (with-read mintit-alt-coins sale-id
+      { "guard":= guard, "bank-account":= bank }
       (enforce-guard guard)
+      (compose-capability (CONTRACT))
+      (compose-capability (MANAGED bank))
     )
   )
 
@@ -157,7 +159,8 @@
   )
 
   (defschema mintit-alt-coin
-    @doc "Stores a pool for an accepted alt coin. Id is the collection-name"
+    @doc "Stores a pool for an accepted alt coin. Id is the sale-id."
+    sale-id:string
     collection-name:string
     bank-account:string
     alt-coin:module{fungible-v2}
@@ -169,6 +172,7 @@
 
   (defun create-mintit-alt-coin:string 
     (
+      sale-id:string
       collection-name:string
       bank-account:string
       alt-coin:module{fungible-v2}
@@ -177,8 +181,9 @@
       guard:guard
     )
     
-    (insert mintit-alt-coins collection-name
+    (insert mintit-alt-coins sale-id
       { "bank-account": bank-account
+      , "sale-id": sale-id
       , "collection-name": collection-name
       , "alt-coin": alt-coin
       , "alt-kda-ratio": alt-kda-ratio
@@ -203,15 +208,16 @@
   (defun mint-with-alt-coin:string 
     (
       buyer:string
-      collection-name:string
+      sale-id:string
       guard:guard
     )
     
     ; Require mint capability
     (with-capability (MINT) 
       ; Read from mintit alt coin
-      (with-read mintit-alt-coins collection-name
+      (with-read mintit-alt-coins sale-id
         { "bank-account":= bank:string
+        , "collection-name":= collection-name
         , "alt-coin":= alt-coin:module{fungible-v2}
         , "alt-kda-ratio":= alt-kda-ratio:decimal 
         , "require-whitelist":= require-whitelist:bool
@@ -219,13 +225,12 @@
 
         ; Enforce whitelist if required
         (if require-whitelist 
-          (enforce-whitelisted collection-name buyer)  
+          (enforce-whitelisted sale-id buyer)  
           []
         )
         
         (let*
           (
-            (tx-id (hash {"collection-name": collection-name, "buyer": buyer, "salt": (curr-time)}))
             (buyer-managed-account (contract-guard-name buyer))
             (buyer-contract-guard (create-CONTRACT-guard buyer))
             (buyer-managed-guard (create-MANAGED-guard buyer-managed-account))
@@ -242,20 +247,20 @@
           )
 
           ; Create a managed account to mint the token
-          (with-default-read managed-accounts buyer-managed-account
+          (with-default-read managed-accounts buyer
             { "account": "", "guard": guard } 
             { "account":= old-a, "guard":= old-g } 
             ; If there is not account with that name yet, create one
             ; Otherwise, enforce the guard provided
             (if (= old-a "")
-              (create-managed-account buyer-managed-account guard)
-              (with-capability (MANAGED buyer-managed-account)
+              (create-managed-account buyer guard)
+              (with-capability (MANAGED buyer)
                 true
               )
             )
           )
 
-          (with-capability (MANAGED "bank")
+          (with-capability (MANAGED bank)
             ; (create-managed-account buyer-managed-account buyer-managed-guard)
             
             ; Transfer tokens around
@@ -272,6 +277,10 @@
         )
       )
     )
+  )
+
+  (defun get-bank-for-alt-sale:string (sale-id:string)
+    (at "bank-account" (read mintit-alt-coins sale-id ["bank-account"]))
   )
 
   (defun get-managed-account-for-buyer:string (buyer:string)
@@ -300,8 +309,8 @@
           )
         )
       )  
-      ;  [managed-account]
-      (with-capability (MANAGED managed-account)
+      
+      (with-capability (MANAGED buyer)
         (map (transfer) (get-owned-nfts buyer))
       )
     )
@@ -316,25 +325,44 @@
   )
   (deftable whitelisters:{whitelist})
 
-  (defun add-whitelisted:[string] (collection-name:string whitelisted:[string])
-    (with-capability (MINTIT_ALT_COIN_MANAGER collection-name)
-      (map (add-whitelist collection-name) whitelisted)
+  (defun add-whitelisted:[string] (sale-id:string whitelisted:[string])
+    (with-capability (MINTIT_ALT_COIN_MANAGER sale-id)
+      (map (add-whitelist sale-id) whitelisted)
     )
   )
 
-  (defun add-whitelist:string (collection-name:string account:string)
-    (require-capability (MINTIT_ALT_COIN_MANAGER collection-name))
+  (defun add-whitelist:string (sale-id:string account:string)
+    (require-capability (MINTIT_ALT_COIN_MANAGER sale-id))
 
-    (write whitelisters (concat [collection-name "-" account])
+    (write whitelisters (concat [sale-id "-" account])
       { "whitelisted": true }
     )
   )
 
-  (defun enforce-whitelisted:bool (collection-name:string account:string)
-    (with-default-read whitelisters (concat [collection-name "-" account])
+  (defun enforce-whitelisted:bool (sale-id:string account:string)
+    (with-default-read whitelisters (concat [sale-id "-" account])
       { "whitelisted": false }
       { "whitelisted":= wl }
       (enforce wl "Must be whitelisted")
+    )
+  )
+
+  ;; -------------------------------
+  ;; Bank withdraw
+
+  (defun withdraw-from-bank:string (sale-id:string receiver:string amount:decimal)
+    @doc "Ops function that enables bonded NFT managers to withdraw from a pool's bank. \
+    \ Expects that the receiver exists."
+    (with-capability (MINTIT_ALT_COIN_MANAGER sale-id)
+      (with-read mintit-alt-coins sale-id
+        { "bank-account" := bank }
+        
+        (install-capability (coin.TRANSFER bank receiver amount))
+        (coin.transfer bank receiver amount)
+
+        ;  (concat ["Withdrew " (int-to-str 10 (floor amount)) " coins (Rounded down) from " payout-bank])
+        (format "Withdrew {} coins from {} to {}" [amount bank receiver])
+      )
     )
   )
 
